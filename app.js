@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.0.2';
+const APP_VERSION = 'v1.0.3';
 const DB_NAME = 'omoidasimemo-db';
 const DB_VERSION = 1;
 const NOTE_STORE = 'notes';
@@ -8,7 +8,7 @@ const ITEM_STORE = 'items';
 
 const defaultNoteCategories = ['スマホ', 'PC', '料理', '仕事', '生活', 'ChatGPT', 'その他'];
 const defaultItemCategories = ['ガジェット', '家電', '工具', 'スポーツ', '防災', '書類', 'その他'];
-const ownershipStatuses = ['所持中', '故障', '紛失・廃棄', '売却済み'];
+const ownershipStatuses = ['所持中（使用中）', '所持中（未使用）', '所持中（使用終わり）', '故障', '紛失・廃棄', '売却済み'];
 
 let db;
 let notes = [];
@@ -59,6 +59,7 @@ function cacheElements() {
   el.closeImport = document.getElementById('closeImportButton');
   el.cancelImport = document.getElementById('cancelImportButton');
   el.mergeImport = document.getElementById('mergeImportButton');
+  el.diffImport = document.getElementById('diffImportButton');
   el.replaceImport = document.getElementById('replaceImportButton');
 }
 
@@ -126,6 +127,7 @@ function bindEvents() {
   el.closeImport.addEventListener('click', closeImportDialog);
   el.cancelImport.addEventListener('click', closeImportDialog);
   el.mergeImport.addEventListener('click', () => applyImport('merge'));
+  el.diffImport.addEventListener('click', () => applyImport('diff'));
   el.replaceImport.addEventListener('click', () => applyImport('replace'));
   el.importDialog.addEventListener('cancel', (event) => {
     event.preventDefault();
@@ -964,19 +966,12 @@ async function handleImportFile(event) {
     const data = JSON.parse(text);
     const normalized = normalizeImportData(data);
     pendingImport = normalized;
-    el.importSummary.innerHTML = `
-      <section class="detail-section">
-        <h3>読み込み内容</h3>
-        <p>小ネタ：${normalized.notes.length}件<br>持ち物：${normalized.items.length}件</p>
-      </section>
-      <section class="detail-section">
-        <h3>復元方法</h3>
-        <p><strong>追加で復元</strong>：既存データを残して読み込みます。<br><strong>全消去して復元</strong>：今のデータを削除してから読み込みます。</p>
-      </section>
-    `;
+    const diff = computeImportDiff(normalized);
+    el.importSummary.innerHTML = createImportSummaryHtml(normalized, diff);
     showDialog(el.importDialog);
   } catch (error) {
-    window.alert(`JSONを読み込めませんでした。\n${error.message}`);
+    window.alert(`JSONを読み込めませんでした。
+${error.message}`);
     el.importFileInput.value = '';
   }
 }
@@ -1027,18 +1022,168 @@ function normalizeImportData(data) {
   };
 }
 
+function createImportSummaryHtml(importData, diff) {
+  const total = diff.total;
+  return `
+    <section class="detail-section">
+      <h3>読み込み内容</h3>
+      <p>小ネタ：${importData.notes.length}件<br>持ち物：${importData.items.length}件</p>
+    </section>
+    <section class="detail-section">
+      <h3>差分復元プレビュー</h3>
+      ${summaryTable([
+        ['新規追加', `${total.add}件`],
+        ['更新候補', `${total.update}件`],
+        ['端末側が新しい', `${total.skipNewer}件（スキップ）`],
+        ['同時刻で内容差あり', `${total.conflict}件（競合・スキップ）`],
+        ['変更なし', `${total.same}件`],
+        ['端末側だけにあるデータ', `${total.localOnly}件（保持）`]
+      ])}
+      <p>差分復元は、JSONにだけあるデータを追加し、JSON側の更新日時が新しいデータだけ上書きします。端末側だけにあるデータは削除しません。</p>
+    </section>
+    <section class="detail-section">
+      <h3>復元方法</h3>
+      <p><strong>追加で復元</strong>：JSON内のデータを別データとして追加します。<br><strong>差分復元</strong>：新規追加とJSON側が新しい更新だけ反映します。<br><strong>全消去して復元</strong>：今のデータを削除してJSON内容に置き換えます。</p>
+    </section>
+  `;
+}
+
+function summaryTable(rows) {
+  const body = rows
+    .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+  return `<table class="detail-table"><tbody>${body}</tbody></table>`;
+}
+
+function computeImportDiff(importData) {
+  const noteCurrentMap = new Map(notes.map((note) => [note.id, note]));
+  const itemCurrentMap = new Map(items.map((item) => [item.id, item]));
+  const noteImportedIds = new Set(importData.notes.map((note) => note.id));
+  const itemImportedIds = new Set(importData.items.map((item) => item.id));
+  const noteDiff = computeStoreDiff(importData.notes, noteCurrentMap);
+  const itemDiff = computeStoreDiff(importData.items, itemCurrentMap);
+  const localOnlyNotes = notes.filter((note) => !noteImportedIds.has(note.id));
+  const localOnlyItems = items.filter((item) => !itemImportedIds.has(item.id));
+
+  return {
+    notes: noteDiff,
+    items: itemDiff,
+    localOnly: {
+      notes: localOnlyNotes,
+      items: localOnlyItems
+    },
+    total: {
+      add: noteDiff.add.length + itemDiff.add.length,
+      update: noteDiff.update.length + itemDiff.update.length,
+      skipNewer: noteDiff.skipNewer.length + itemDiff.skipNewer.length,
+      conflict: noteDiff.conflict.length + itemDiff.conflict.length,
+      same: noteDiff.same.length + itemDiff.same.length,
+      localOnly: localOnlyNotes.length + localOnlyItems.length
+    }
+  };
+}
+
+function computeStoreDiff(importedRecords, currentMap) {
+  const diff = {
+    add: [],
+    update: [],
+    skipNewer: [],
+    conflict: [],
+    same: []
+  };
+
+  importedRecords.forEach((imported) => {
+    const current = currentMap.get(imported.id);
+    if (!current) {
+      diff.add.push(imported);
+      return;
+    }
+
+    const order = compareUpdatedAt(imported.updatedAt, current.updatedAt);
+    if (order > 0) {
+      diff.update.push(imported);
+      return;
+    }
+    if (order < 0) {
+      diff.skipNewer.push({ imported, current });
+      return;
+    }
+    if (stableStringifyForDiff(imported) === stableStringifyForDiff(current)) {
+      diff.same.push(imported);
+      return;
+    }
+    diff.conflict.push({ imported, current });
+  });
+
+  return diff;
+}
+
+function compareUpdatedAt(importedUpdatedAt, currentUpdatedAt) {
+  const importedTime = Date.parse(importedUpdatedAt || '');
+  const currentTime = Date.parse(currentUpdatedAt || '');
+  const importedValue = Number.isNaN(importedTime) ? 0 : importedTime;
+  const currentValue = Number.isNaN(currentTime) ? 0 : currentTime;
+  if (importedValue === currentValue) return 0;
+  return importedValue > currentValue ? 1 : -1;
+}
+
+function stableStringifyForDiff(value) {
+  return JSON.stringify(sortValueForDiff(value));
+}
+
+function sortValueForDiff(value) {
+  if (Array.isArray(value)) return value.map(sortValueForDiff);
+  if (value && typeof value === 'object') {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = sortValueForDiff(value[key]);
+        return acc;
+      }, {});
+  }
+  return value;
+}
+
+
 async function applyImport(mode) {
   if (!pendingImport) return;
+
+  if (mode === 'diff') {
+    const diff = computeImportDiff(pendingImport);
+    const notesToApply = [...diff.notes.add, ...diff.notes.update];
+    const itemsToApply = [...diff.items.add, ...diff.items.update];
+    const applyCount = notesToApply.length + itemsToApply.length;
+    if (applyCount === 0) {
+      window.alert('差分復元で反映するデータはありません。必要であれば「追加で復元」または「全消去して復元」を選んでください。');
+      return;
+    }
+    const ok = window.confirm(`差分復元を実行します。
+新規追加：${diff.total.add}件
+更新：${diff.total.update}件
+端末側が新しいデータと競合データはスキップします。`);
+    if (!ok) return;
+    await Promise.all([bulkPut(NOTE_STORE, notesToApply), bulkPut(ITEM_STORE, itemsToApply)]);
+    closeImportDialog();
+    await loadAll();
+    render();
+    return;
+  }
+
+  let notesToImport = pendingImport.notes;
+  let itemsToImport = pendingImport.items;
+
   if (mode === 'replace') {
     const ok = window.confirm('現在の全データを削除してから復元します。よろしいですか？');
     if (!ok) return;
     await Promise.all([clearStore(NOTE_STORE), clearStore(ITEM_STORE)]);
   }
+
   if (mode === 'merge') {
-    pendingImport.notes = pendingImport.notes.map((note) => ({ ...note, id: createId('note') }));
-    pendingImport.items = pendingImport.items.map((item) => ({ ...item, id: createId('item') }));
+    notesToImport = pendingImport.notes.map((note) => ({ ...note, id: createId('note') }));
+    itemsToImport = pendingImport.items.map((item) => ({ ...item, id: createId('item') }));
   }
-  await Promise.all([bulkPut(NOTE_STORE, pendingImport.notes), bulkPut(ITEM_STORE, pendingImport.items)]);
+
+  await Promise.all([bulkPut(NOTE_STORE, notesToImport), bulkPut(ITEM_STORE, itemsToImport)]);
   closeImportDialog();
   await loadAll();
   render();
@@ -1071,7 +1216,7 @@ async function addSampleData() {
     maker: 'Anker',
     modelNumber: 'Axxxx',
     photo: '',
-    ownershipStatus: '所持中',
+    ownershipStatus: '所持中（使用中）',
     purchaseDate: '2026-06-01',
     shop: 'Amazon',
     price: '',
@@ -1193,7 +1338,8 @@ function normalizeNoteRecord(note) {
 
 function getValidOwnershipStatus(value) {
   const status = String(value || '').trim();
-  return ownershipStatuses.includes(status) ? status : '所持中';
+  if (status === '所持中') return '所持中（使用中）';
+  return ownershipStatuses.includes(status) ? status : '所持中（使用中）';
 }
 
 function getOwnershipStatus(item) {
