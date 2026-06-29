@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="思い出しメモ">
+  <rect width="192" height="192" rx="42" fill="#0f172a"/>
+  <rect x="40" y="34" width="112" height="124" rx="18" fill="#f8fafc"/>
+  <path d="M62 70h68M62 96h68M62 122h46" stroke="#0f172a" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="137" cy="133" r="22" fill="#38bdf8"/>
+  <path d="M130 132l8 8 16-20" fill="none" stroke="#0f172a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

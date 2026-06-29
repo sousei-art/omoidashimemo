@@ -1,0 +1,17 @@
+{
+  "name": "思い出しメモ",
+  "short_name": "思い出しメモ",
+  "description": "小ネタと持ち物情報をすぐ登録して検索する個人用Webアプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

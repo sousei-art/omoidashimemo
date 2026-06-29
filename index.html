@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="思い出しメモ">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>思い出しメモ v1.0.1</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">個人用ナレッジ・持ち物台帳</p>
+        <h1>思い出しメモ</h1>
+        <p class="version">v1.0.1</p>
+      </div>
+      <button class="icon-button" id="settingsButton" type="button" aria-label="設定を開く">⚙️</button>
+    </header>
+
+    <section class="search-panel" aria-label="検索">
+      <label for="globalSearch">あれどうやる？ / どこにある？</label>
+      <div class="search-row">
+        <span aria-hidden="true">🔍</span>
+        <input id="globalSearch" type="search" placeholder="例：iPhone 再起動、Anker、保証、料理" autocomplete="off">
+        <button class="text-button" id="clearSearchButton" type="button">消去</button>
+      </div>
+    </section>
+
+    <nav class="top-actions" aria-label="追加">
+      <button class="primary-action" id="addNoteButton" type="button">＋ 小ネタ</button>
+      <button class="primary-action secondary" id="addItemButton" type="button">＋ 持ち物</button>
+    </nav>
+
+    <nav class="tab-bar" aria-label="画面切替">
+      <button class="tab active" data-view="home" type="button">ホーム</button>
+      <button class="tab" data-view="notes" type="button">小ネタ</button>
+      <button class="tab" data-view="items" type="button">持ち物</button>
+      <button class="tab" data-view="settings" type="button">設定</button>
+    </nav>
+
+    <main id="appMain" class="main-content" tabindex="-1"></main>
+  </div>
+
+  <dialog id="entryDialog" class="entry-dialog">
+    <form method="dialog" id="entryForm" class="dialog-card">
+      <div class="dialog-header">
+        <h2 id="dialogTitle">追加</h2>
+        <button class="icon-button" value="cancel" type="button" id="closeDialogButton" aria-label="閉じる">×</button>
+      </div>
+      <div id="formFields" class="form-fields"></div>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" id="cancelEntryButton">キャンセル</button>
+        <button class="save-button" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="detailDialog" class="entry-dialog">
+    <div class="dialog-card detail-card">
+      <div class="dialog-header">
+        <h2 id="detailTitle">詳細</h2>
+        <button class="icon-button" type="button" id="closeDetailButton" aria-label="閉じる">×</button>
+      </div>
+      <div id="detailBody" class="detail-body"></div>
+      <div class="dialog-actions">
+        <button class="ghost-button danger" type="button" id="deleteEntryButton">削除</button>
+        <button class="save-button" type="button" id="editEntryButton">編集</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="importDialog" class="entry-dialog">
+    <div class="dialog-card detail-card">
+      <div class="dialog-header">
+        <h2>バックアップ復元</h2>
+        <button class="icon-button" type="button" id="closeImportButton" aria-label="閉じる">×</button>
+      </div>
+      <div id="importSummary" class="detail-body"></div>
+      <div class="dialog-actions wrap">
+        <button class="ghost-button" type="button" id="cancelImportButton">キャンセル</button>
+        <button class="ghost-button" type="button" id="mergeImportButton">追加で復元</button>
+        <button class="save-button danger-bg" type="button" id="replaceImportButton">全消去して復元</button>
+      </div>
+    </div>
+  </dialog>
+
+  <input type="file" id="importFileInput" accept="application/json,.json" hidden>
+
+  <template id="emptyTemplate">
+    <section class="empty-state">
+      <div class="empty-icon">📝</div>
+      <h2>まだ登録がありません</h2>
+      <p>小ネタや持ち物を追加すると、ここから検索できます。</p>
+    </section>
+  </template>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
