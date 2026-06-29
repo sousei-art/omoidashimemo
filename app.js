@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = 'v1.0.1';
+const APP_VERSION = 'v1.0.2';
 const DB_NAME = 'omoidasimemo-db';
 const DB_VERSION = 1;
 const NOTE_STORE = 'notes';
@@ -100,13 +100,15 @@ function bindEvents() {
 
   el.editEntry.addEventListener('click', () => {
     if (!activeDetail) return;
-    const target = activeDetail.type === 'note'
-      ? notes.find((note) => note.id === activeDetail.id)
-      : items.find((item) => item.id === activeDetail.id);
+    const detailType = activeDetail.type;
+    const detailId = activeDetail.id;
+    const target = detailType === 'note'
+      ? notes.find((note) => note.id === detailId)
+      : items.find((item) => item.id === detailId);
     closeDetailDialog();
     if (!target) return;
-    if (activeDetail.type === 'note') openNoteForm(target);
-    if (activeDetail.type === 'item') openItemForm(target);
+    if (detailType === 'note') openNoteForm(target);
+    if (detailType === 'item') openItemForm(target);
   });
 
   el.deleteEntry.addEventListener('click', async () => {
@@ -160,7 +162,7 @@ function initDatabase() {
 
 async function loadAll() {
   const [loadedNotes, loadedItems] = await Promise.all([getAllRecords(NOTE_STORE), getAllRecords(ITEM_STORE)]);
-  notes = loadedNotes.sort(sortByUpdatedDesc);
+  notes = loadedNotes.map(normalizeNoteRecord).sort(sortByUpdatedDesc);
   items = loadedItems.map(normalizeItemRecord).sort(sortByUpdatedDesc);
 }
 
@@ -296,12 +298,14 @@ function renderSettingsView() {
   const actions = document.createElement('div');
   actions.className = 'settings-actions';
 
-  const exportButton = button('JSONを書き出す', 'save-button', exportBackup);
+  const exportButton = button('保存先を選んでJSONを書き出す', 'save-button', exportBackupWithPicker);
+  const shareButton = button('JSONを共有/ファイルに保存', 'ghost-button', shareBackup);
+  const downloadButton = button('JSONをダウンロード', 'ghost-button', downloadBackup);
   const importButton = button('JSONから復元する', 'ghost-button', () => el.importFileInput.click());
   const sampleButton = button('サンプルデータを追加', 'ghost-button', addSampleData);
   const clearButton = button('全データ削除', 'ghost-button danger', clearAllData);
 
-  actions.append(exportButton, importButton, sampleButton, clearButton);
+  actions.append(exportButton, shareButton, downloadButton, importButton, sampleButton, clearButton);
 
   const notice = createElement('div', 'notice');
   notice.innerHTML = `
@@ -376,11 +380,12 @@ function createEntryList(entries) {
 function createEntryCard(entry) {
   const card = document.createElement('button');
   card.type = 'button';
-  card.className = entry.type === 'item' ? 'card item-card-layout' : 'card';
+  const shouldShowThumb = entry.type === 'item' || Boolean(entry.photo);
+  card.className = shouldShowThumb ? 'card item-card-layout' : 'card';
   card.addEventListener('click', () => openDetail(entry.type, entry.id));
 
-  if (entry.type === 'item') {
-    const thumb = createItemThumb(entry.photo, entry.title);
+  if (shouldShowThumb) {
+    const thumb = createEntryThumb(entry.photo, entry.title, entry.type === 'item' ? '物' : '画');
     const body = createElement('div');
     body.append(createCardBody(entry));
     card.append(thumb, body);
@@ -413,12 +418,12 @@ function createCardBody(entry) {
   return wrap;
 }
 
-function createItemThumb(photo, title) {
-  if (!photo) return createElement('div', 'thumb-placeholder', '物');
+function createEntryThumb(photo, title, fallbackLabel = '物') {
+  if (!photo) return createElement('div', 'thumb-placeholder', fallbackLabel);
   const thumb = createElement('div', 'thumb');
   const img = document.createElement('img');
   img.src = photo;
-  img.alt = `${title}の写真`;
+  img.alt = `${title}の画像`;
   thumb.append(img);
   return thumb;
 }
@@ -541,6 +546,7 @@ function noteToEntry(note) {
     meta: formatDate(note.updatedAt),
     preview: firstText(note.body, note.steps, note.caution),
     updatedAt: note.updatedAt,
+    photo: note.photo || '',
     searchText: [note.title, note.category, joinTags(note.tags), note.body, note.steps, note.caution, note.url].join(' ')
   };
 }
@@ -587,26 +593,53 @@ function itemToEntry(item) {
 function openNoteForm(existing = null) {
   const isEdit = Boolean(existing);
   el.dialogTitle.textContent = isEdit ? '小ネタを編集' : '小ネタを追加';
+  const currentPhoto = existing?.photo || '';
   el.formFields.innerHTML = `
+    <div class="field">
+      <label for="notePhoto">画像</label>
+      <input id="notePhoto" name="photo" type="file" accept="image/*">
+      <img id="notePhotoPreview" class="image-preview" alt="画像プレビュー">
+      ${currentPhoto ? '<label class="check-row"><input type="checkbox" name="removePhoto">画像を削除する</label>' : ''}
+    </div>
     ${field('title', 'タイトル', 'text', existing?.title || '', '例：iPhoneの完全再起動', true)}
     ${selectField('category', 'カテゴリ', existing?.category || 'その他', defaultNoteCategories)}
-    ${field('tags', 'タグ（カンマ区切り）', 'text', joinTags(existing?.tags), '例：iPhone, 再起動, 不具合対応')}
+    ${field('tags', 'タグ（スペース・カンマ区切り）', 'text', joinTags(existing?.tags), '例：iPhone 再起動 不具合対応')}
     ${textareaField('body', '本文', existing?.body || '', '概要や結論を入れます')}
     ${textareaField('steps', '手順', existing?.steps || '', '1. ...\n2. ...')}
     ${textareaField('caution', '注意点', existing?.caution || '', '失敗しやすい点、条件など')}
     ${field('url', '参考URL', 'url', existing?.url || '', 'https://...')}
     ${checkField('favorite', 'お気に入り', Boolean(existing?.favorite))}
   `;
+
+  const photoInput = el.formFields.querySelector('#notePhoto');
+  const photoPreview = el.formFields.querySelector('#notePhotoPreview');
+  if (currentPhoto) {
+    photoPreview.src = currentPhoto;
+    photoPreview.style.display = 'block';
+  }
+  photoInput.addEventListener('change', async () => {
+    const file = photoInput.files?.[0];
+    if (!file) return;
+    const dataUrl = await resizeImageToDataUrl(file, 1280, 0.82);
+    photoPreview.src = dataUrl;
+    photoPreview.style.display = 'block';
+  });
+
   el.entryForm.onsubmit = async (event) => {
     event.preventDefault();
     const now = nowIso();
     const form = new FormData(el.entryForm);
+    let photo = currentPhoto;
+    if (form.get('removePhoto') === 'on') photo = '';
+    if (photoInput.files?.[0]) photo = await resizeImageToDataUrl(photoInput.files[0], 1280, 0.82);
+
     const record = {
       id: existing?.id || createId('note'),
       type: 'note',
       title: String(form.get('title') || '').trim(),
       category: String(form.get('category') || 'その他').trim() || 'その他',
       tags: parseTags(form.get('tags')),
+      photo,
       body: String(form.get('body') || '').trim(),
       steps: String(form.get('steps') || '').trim(),
       caution: String(form.get('caution') || '').trim(),
@@ -655,7 +688,7 @@ function openItemForm(existing = null) {
     ${field('manualUrl', '説明書URL', 'url', existing?.manualUrl || '', 'https://...')}
     ${textareaField('consumablesMemo', '消耗品メモ', existing?.consumablesMemo || '', '交換品、付属品、ケーブルなど')}
     ${textareaField('freeMemo', '自由メモ', existing?.freeMemo || '', '用途、注意点、使用感など')}
-    ${field('tags', 'タグ（カンマ区切り）', joinTags(existing?.tags), '例：充電, 防災, 出張')}
+    ${field('tags', 'タグ（スペース・カンマ区切り）', 'text', joinTags(existing?.tags), '例：充電 防災 出張')}
     ${checkField('favorite', 'お気に入り', Boolean(existing?.favorite))}
   `;
 
@@ -725,6 +758,13 @@ function openDetail(type, id) {
 function renderNoteDetail(note) {
   el.detailTitle.textContent = note.title || '無題の小ネタ';
   el.detailBody.innerHTML = '';
+  if (note.photo) {
+    const img = document.createElement('img');
+    img.className = 'photo-large';
+    img.src = note.photo;
+    img.alt = `${note.title || '小ネタ'}の画像`;
+    el.detailBody.append(img);
+  }
   el.detailBody.append(
     detailBadges(note.category, note.tags, note.favorite),
     detailText('本文', note.body),
@@ -845,7 +885,8 @@ function closeImportDialog() {
   closeDialog(el.importDialog);
 }
 
-async function exportBackup() {
+function createBackupFileParts() {
+  const filename = `omoidasimemo-backup-${dateStamp()}.json`;
   const payload = {
     app: '思い出しメモ',
     version: APP_VERSION,
@@ -853,11 +894,62 @@ async function exportBackup() {
     notes,
     items
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const text = JSON.stringify(payload, null, 2);
+  const blob = new Blob([text], { type: 'application/json' });
+  return { filename, text, blob };
+}
+
+async function exportBackupWithPicker() {
+  const { filename, blob } = createBackupFileParts();
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description: 'JSONバックアップ',
+            accept: { 'application/json': ['.json'] }
+          }
+        ]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      window.alert('JSONバックアップを保存しました。');
+      return;
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+    }
+  }
+  await shareBackup();
+}
+
+async function shareBackup() {
+  const { filename, blob } = createBackupFileParts();
+  if (typeof File === 'function') {
+    const file = new File([blob], filename, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      try {
+        await navigator.share({
+          title: '思い出しメモ バックアップ',
+          text: '思い出しメモのJSONバックアップです。',
+          files: [file]
+        });
+        return;
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+      }
+    }
+  }
+  downloadBackup();
+}
+
+function downloadBackup() {
+  const { filename, blob } = createBackupFileParts();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `omoidasimemo-backup-${dateStamp()}.json`;
+  a.download = filename;
   document.body.append(a);
   a.click();
   a.remove();
@@ -901,6 +993,7 @@ function normalizeImportData(data) {
       title: String(note.title || '').trim(),
       category: String(note.category || 'その他').trim() || 'その他',
       tags: Array.isArray(note.tags) ? note.tags.map(String).filter(Boolean) : parseTags(note.tags),
+      photo: String(note.photo || ''),
       body: String(note.body || '').trim(),
       steps: String(note.steps || '').trim(),
       caution: String(note.caution || '').trim(),
@@ -961,6 +1054,7 @@ async function addSampleData() {
     title: 'iPhoneの完全再起動',
     category: 'スマホ',
     tags: ['iPhone', '再起動', '不具合対応'],
+    photo: '',
     body: 'iPhoneが固まった時に強制的に再起動する方法。',
     steps: '1. 音量上を押してすぐ離す\n2. 音量下を押してすぐ離す\n3. サイドボタンをAppleロゴが出るまで長押し',
     caution: '通常の電源オフとは違う。機種によって操作が異なる場合は公式情報を確認する。',
@@ -1075,18 +1169,26 @@ function createElement(tag, className = '', text = '') {
 function parseTags(input) {
   if (!input) return [];
   return String(input)
-    .split(/[、,\n]/)
+    .split(/[、,\s]+/)
     .map((tag) => tag.trim())
     .filter(Boolean)
     .filter((tag, index, array) => array.indexOf(tag) === index);
 }
 
 function joinTags(tags) {
-  return Array.isArray(tags) ? tags.join(', ') : '';
+  return Array.isArray(tags) ? tags.join(' ') : '';
 }
 
 function normalize(value) {
   return String(value || '').toLowerCase().normalize('NFKC');
+}
+
+
+function normalizeNoteRecord(note) {
+  return {
+    ...note,
+    photo: String(note?.photo || '')
+  };
 }
 
 function getValidOwnershipStatus(value) {
