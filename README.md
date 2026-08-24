@@ -1,22 +1,14 @@
-# 思い出しメモ v2.0.0
+# 思い出しメモ v2.0.1
 
 Supabaseを正データとして、PC・iPad・iPhoneで同じ小ネタ／持ち物／画像を共有するクラウド版です。
 
-## v2.0.0の主な変更
+## v2.0.1の主な変更
 
-- React 19 + Vite 7へ移行
-- Supabase Auth（メール＋パスワード）
-- Supabase Database（notes / items / image_files）
-- Supabase Storage（Private Bucket: memo-images）
-- RLSでログインユーザー本人のデータだけ許可
-- 小ネタ・持ち物のCRUD
-- 小ネタ・持ち物の画像保存
-- タグ検索・全文検索
-- 持ち物の購入日順並べ替え 
-- 所持状況6種類
-- JSONバックアップ
-- v1.x JSONの移行
-- JSONの追加復元 / 差分復元 / 全消去復元
+- カテゴリを固定選択から「自由入力＋候補選択」に変更
+- 小ネタ／持ち物それぞれで、過去に使ったカテゴリを候補表示
+- カテゴリ候補は最近使った順に表示し、その後に標準カテゴリを表示
+- 前回不足していたData API用 `GRANT` を `supabase/setup.sql` に追加
+- 既存のSupabaseテーブル構造変更はなし
 
 ## 所持状況
 
@@ -54,6 +46,7 @@ Supabase Dashboard → **SQL Editor** → **New query** を開き、
 - `memo-images` Private Storage Bucket
 - Storage Policy
 - updated_at自動更新Trigger
+- Data API用のauthenticated権限（GRANT）
 
 ## 1-3. Authenticationの確認
 
@@ -120,7 +113,7 @@ Deploy後、同じURLをPC / iPad / iPhoneで開き、同じSupabaseアカウン
 # 4. v1.0.3からデータを移す
 
 1. v1.0.3でJSONバックアップを書き出す
-2. v2.0.0へログイン
+2. v2.0.1へログイン
 3. 設定 → **JSONから復元 / 旧v1データを移行**
 4. JSONを選択
 5. 内容を確認
@@ -187,7 +180,7 @@ Private Bucket：`memo-images`
 
 ---
 
-# 8. v2.0.0で未対応
+# 8. v2.0.1で未対応
 
 - Supabase Realtimeによる即時同期
 - オフライン編集
@@ -229,4 +222,4 @@ Private Bucket：`memo-images`
 
 ## Version
 
-v2.0.0
+v2.0.1
