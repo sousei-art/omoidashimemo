@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, supabaseConfigured } from './supabase'
 
-const APP_VERSION = '2.0.0'
+const APP_VERSION = '2.0.1'
 const NOTE_CATEGORIES = ['スマホ', 'PC', '料理', '仕事', '生活', 'ChatGPT', 'その他']
 const ITEM_CATEGORIES = ['ガジェット', '家電', '工具', 'スポーツ', '防災', '書類', 'その他']
 const STATUSES = ['所持中（使用中）', '所持中（未使用）', '所持中（使用終わり）', '故障', '紛失・廃棄', '売却済み']
@@ -20,6 +20,18 @@ function uuid(){ return crypto.randomUUID() }
 function isUuid(v){ return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v||'')) }
 function normalizeStatus(v){ return v === '所持中' || !STATUSES.includes(v) ? '所持中（使用中）' : v }
 function errText(error){ return error?.message || String(error || '不明なエラー') }
+
+function buildCategoryOptions(rows, defaults){
+  const latest=new Map()
+  for(const row of rows||[]){
+    const category=String(row.category||'').trim()
+    if(!category) continue
+    const time=new Date(row.updated_at||row.created_at||0).getTime()||0
+    if(!latest.has(category) || time>latest.get(category)) latest.set(category,time)
+  }
+  const used=[...latest.entries()].sort((a,b)=>b[1]-a[1]).map(([category])=>category)
+  return [...new Set([...used,...defaults])]
+}
 
 function App(){
   const [session,setSession]=useState(null)
@@ -72,6 +84,8 @@ function App(){
     setImageUrls(map)
   }
 
+  const noteCategoryOptions=useMemo(()=>buildCategoryOptions(notes,NOTE_CATEGORIES),[notes])
+  const itemCategoryOptions=useMemo(()=>buildCategoryOptions(items,ITEM_CATEGORIES),[items])
   const noteEntries=useMemo(()=>notes.filter(n=>matchesNote(n,query)),[notes,query])
   const itemEntries=useMemo(()=>{
     let arr=items.filter(i=>matchesItem(i,query) && (statusFilter==='すべて'||i.status===statusFilter))
@@ -110,7 +124,7 @@ function App(){
       {view==='settings' && <Settings session={session} notes={notes} items={items} busy={busy} syncText={syncText} loadAll={loadAll} onExport={exportBackup} onImport={handleImportFile} onSignOut={()=>supabase.auth.signOut()}/>} 
     </main>
 
-    {editor && <EditorModal editor={editor} onClose={()=>setEditor(null)} onSave={saveEntry} existingImage={editor.data?firstImage(editor.type,editor.data.id):''}/>} 
+    {editor && <EditorModal editor={editor} onClose={()=>setEditor(null)} onSave={saveEntry} existingImage={editor.data?firstImage(editor.type,editor.data.id):''} categoryOptions={editor.type==='note'?noteCategoryOptions:itemCategoryOptions}/>} 
     {detail && <DetailModal detail={detail} image={firstImage(detail.type,detail.data.id)} onClose={()=>setDetail(null)} onEdit={()=>{setEditor(detail);setDetail(null)}} onDelete={()=>deleteEntry(detail.type,detail.data)}/>} 
     {importPreview && <ImportModal preview={importPreview} onClose={()=>setImportPreview(null)} onApply={applyImport}/>} 
   </div>
@@ -236,7 +250,7 @@ function Stat({n,label}){return <div className="stat"><strong>{n}</strong><span>
 function Section({title,children,action}){return <section className="section"><div className="section-head"><h2>{title}</h2>{action}</div>{children}</section>}
 function Empty({text}){return <div className="empty">📝<p>{text}</p></div>}
 
-function EditorModal({editor,onClose,onSave,existingImage}){
+function EditorModal({editor,onClose,onSave,existingImage,categoryOptions}){
   const type=editor.type; const [data,setData]=useState(type==='note'?{...emptyNote,...(editor.data||{}),tags:tagsText(editor.data?.tags)}:{...emptyItem,...(editor.data||{}),tags:tagsText(editor.data?.tags)})
   const [file,setFile]=useState(null); const [removeImage,setRemoveImage]=useState(false)
   const preview=file?URL.createObjectURL(file):(!removeImage?existingImage:'')
@@ -244,10 +258,13 @@ function EditorModal({editor,onClose,onSave,existingImage}){
   const area=(k,label,placeholder='')=><label className="field"><span>{label}</span><textarea value={data[k]??''} placeholder={placeholder} onChange={e=>setData({...data,[k]:e.target.value})}/></label>
   return <div className="modal-backdrop"><div className="modal"><div className="modal-head"><h2>{editor.data?'編集':'追加'}：{type==='note'?'小ネタ':'持ち物'}</h2><button onClick={onClose}>×</button></div><div className="modal-body">
     <label className="field"><span>{type==='note'?'画像':'写真'}</span><input type="file" accept="image/*" onChange={e=>{setFile(e.target.files?.[0]||null);setRemoveImage(false)}}/></label>{preview&&<img className="edit-preview" src={preview} alt="プレビュー"/>}{existingImage&&<label className="check"><input type="checkbox" checked={removeImage} onChange={e=>setRemoveImage(e.target.checked)}/>画像を削除する</label>}
-    {type==='note'?<>{field('title','タイトル','text','例：iPhoneの完全再起動')}<SelectField label="カテゴリ" value={data.category} options={NOTE_CATEGORIES} onChange={v=>setData({...data,category:v})}/>{field('tags','タグ（スペース・カンマ区切り）','text','例：iPhone 再起動 不具合対応')}{area('body','本文','概要や結論')}{area('steps','手順','1. ...\n2. ...')}{area('caution','注意点','失敗しやすい点など')}{field('reference_url','参考URL','url','https://...')}<CheckField label="お気に入り" checked={data.favorite} onChange={v=>setData({...data,favorite:v})}/></>:<>
-      {field('name','品名','text','例：モバイルバッテリー')}<SelectField label="カテゴリ" value={data.category} options={ITEM_CATEGORIES} onChange={v=>setData({...data,category:v})}/><SelectField label="所持状況" value={data.status} options={STATUSES} onChange={v=>setData({...data,status:v})}/><div className="two">{field('maker','メーカー')}{field('model_number','型番')}</div><div className="two">{field('purchase_date','購入日','date')}{field('warranty_until','保証期限','date')}</div><div className="two">{field('shop','購入店')}{field('price','価格','number')}</div>{field('storage_place','保管場所')}{field('manual_url','説明書URL','url')}{area('consumables_memo','消耗品メモ')}{area('free_memo','自由メモ')}{field('tags','タグ（スペース・カンマ区切り）')}<CheckField label="お気に入り" checked={data.favorite} onChange={v=>setData({...data,favorite:v})}/>
+    {type==='note'?<>{field('title','タイトル','text','例：iPhoneの完全再起動')}<CategoryField value={data.category} options={categoryOptions} onChange={v=>setData({...data,category:v})}/>{field('tags','タグ（スペース・カンマ区切り）','text','例：iPhone 再起動 不具合対応')}{area('body','本文','概要や結論')}{area('steps','手順','1. ...\n2. ...')}{area('caution','注意点','失敗しやすい点など')}{field('reference_url','参考URL','url','https://...')}<CheckField label="お気に入り" checked={data.favorite} onChange={v=>setData({...data,favorite:v})}/></>:<>
+      {field('name','品名','text','例：モバイルバッテリー')}<CategoryField value={data.category} options={categoryOptions} onChange={v=>setData({...data,category:v})}/><SelectField label="所持状況" value={data.status} options={STATUSES} onChange={v=>setData({...data,status:v})}/><div className="two">{field('maker','メーカー')}{field('model_number','型番')}</div><div className="two">{field('purchase_date','購入日','date')}{field('warranty_until','保証期限','date')}</div><div className="two">{field('shop','購入店')}{field('price','価格','number')}</div>{field('storage_place','保管場所')}{field('manual_url','説明書URL','url')}{area('consumables_memo','消耗品メモ')}{area('free_memo','自由メモ')}{field('tags','タグ（スペース・カンマ区切り）')}<CheckField label="お気に入り" checked={data.favorite} onChange={v=>setData({...data,favorite:v})}/>
     </>}
   </div><div className="modal-actions"><button className="ghost" onClick={onClose}>キャンセル</button><button className="save" onClick={()=>{ if(type==='note'&&!data.title.trim()) return alert('タイトルを入力してください。'); if(type==='item'&&!data.name.trim()) return alert('品名を入力してください。'); onSave(type,data,file,removeImage)}}>保存</button></div></div></div>
+}
+function CategoryField({value,options,onChange}){
+  return <div className="field"><span>カテゴリ</span><input value={value??''} onChange={e=>onChange(e.target.value)} placeholder="自由入力できます" autoComplete="off"/><div className="category-suggestions">{(options||[]).slice(0,10).map(o=><button type="button" key={o} className={value===o?'category-chip active':'category-chip'} onClick={()=>onChange(o)}>{o}</button>)}</div><small className="field-help">過去に使ったカテゴリを最近使った順で表示します。新しいカテゴリは直接入力できます。</small></div>
 }
 function SelectField({label,value,options,onChange}){return <label className="field"><span>{label}</span><select value={value} onChange={e=>onChange(e.target.value)}>{options.map(o=><option key={o}>{o}</option>)}</select></label>}
 function CheckField({label,checked,onChange}){return <label className="check"><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/>{label}</label>}
