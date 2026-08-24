@@ -1,4 +1,4 @@
--- 思い出しメモ v2.0.0 / Supabase 初期設定
+-- 思い出しメモ v2.0.1 / Supabase 初期設定
 -- Supabase Dashboard > SQL Editor で実行してください。
 
 create extension if not exists pgcrypto;
@@ -127,3 +127,8 @@ with check (bucket_id='memo-images' and (storage.foldername(name))[1]=auth.uid()
 drop policy if exists memo_images_delete_own on storage.objects;
 create policy memo_images_delete_own on storage.objects for delete to authenticated
 using (bucket_id='memo-images' and (storage.foldername(name))[1]=auth.uid()::text);
+
+-- Data API privileges (required when automatic table exposure is disabled)
+grant select, insert, update, delete on table public.notes to authenticated;
+grant select, insert, update, delete on table public.items to authenticated;
+grant select, insert, update, delete on table public.image_files to authenticated;
